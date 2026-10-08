@@ -49,6 +49,8 @@ if is_flash_attn_varlen_func_available():
         get_scheduler_metadata,
         hg_flash_attn_varlen_func,
         varlen_fwd_unified,
+        can_use_paged_fp8_d192_fwd,
+        paged_fp8_d192_fwd,
         hcu_ops,
         reshape_and_cache_flash,
     )
@@ -149,15 +151,17 @@ class HcuFlashAttentionBackend(AttentionBackend):
 
     @staticmethod
     def get_supported_kernel_block_sizes() -> list[int | MultipleOf]:
-        vllm_config = get_current_vllm_config()
-        model_config = vllm_config.model_config
-        cache_config = vllm_config.cache_config
         mode = _get_flash_attn_mode()
         # HCU's paged varlen and CUTLASS kernels require a 64-token page.
         # This must also constrain sliding-window specs: those specs choose
         # their own page size from this method instead of cache_config.block_size.
         if mode in ("varlen", "cutlass"):
             return [64]
+        # Sliding-window specs query this from get_kv_cache_spec, which runs
+        # outside a set_current_vllm_config() context.
+        vllm_config = get_current_vllm_config_or_none()
+        model_config = vllm_config.model_config if vllm_config else None
+        cache_config = vllm_config.cache_config if vllm_config else None
         if (
             model_config
             and model_config.is_hybrid
@@ -198,6 +202,13 @@ class HcuFlashAttentionBackend(AttentionBackend):
 
     @classmethod
     def supports_non_causal(cls) -> bool:
+        return True
+
+    @classmethod
+    def supports_sliding_window(cls) -> bool:
+        # Every HCU flash_attn entry point takes window_size natively (the
+        # paged decode kernel included), as vllm_hcu_21 relied on. Without
+        # this, sliding-window layers silently fall back to TRITON_ATTN.
         return True
 
     @classmethod
@@ -1003,6 +1014,38 @@ class FlashAttentionImpl(AttentionImpl):
                     attn_metadata.causal,
                 )
                 if _get_flash_attn_mode() == "cutlass":
+                    if (
+                        layer._k_scale_float == 1.0
+                        and layer._v_scale_float == 1.0
+                        and can_use_paged_fp8_d192_fwd(
+                            key_cache,
+                            value_cache,
+                            output,
+                            self.alibi_slopes,
+                            self.logits_soft_cap,
+                            self.sinks,
+                        )
+                    ):
+                        logger.info_once(
+                            "[HCU FLASH_ATTN PATH] paged_fp8_d192 (HG prefix)",
+                            scope="local",
+                        )
+                        paged_fp8_d192_fwd(
+                            query[:num_actual_tokens],
+                            key_cache,
+                            value_cache,
+                            output[:num_actual_tokens],
+                            cu_seqlens_q,
+                            seqused_k,
+                            block_table,
+                            max_seqlen_q,
+                            max_seqlen_k,
+                            self.scale,
+                            attn_metadata.causal,
+                            sliding_window_size,
+                            self.sinks,
+                        )
+                        return output
                     logger.info_once(
                         "[HCU FLASH_ATTN PATH] unified_flash_attn",
                         scope="local",

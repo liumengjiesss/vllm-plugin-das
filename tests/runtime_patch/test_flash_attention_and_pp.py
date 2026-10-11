@@ -401,7 +401,7 @@ def test_hybrid_flash_attention_splits_manager_pages_to_vendor_kernel_size(
     monkeypatch.setattr(flash_attn, "_get_flash_attn_mode", lambda: mode)
     monkeypatch.setattr(
         flash_attn,
-        "get_current_vllm_config",
+        "get_current_vllm_config_or_none",
         lambda: SimpleNamespace(
             model_config=SimpleNamespace(is_hybrid=True),
             cache_config=SimpleNamespace(

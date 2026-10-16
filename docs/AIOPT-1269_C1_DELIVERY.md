@@ -101,7 +101,9 @@ Per `fused_experts` call, CUDA-graph timed, 1 HCU:
 Same direction and magnitude on both keys. In server terms the draft MoE drops
 2.359 → 1.939 and 2.593 → 1.862 ms/step, i.e. **−0.42 … −0.73 ms/decode step** (EXP-008).
 
-## 7. E2E performance (EXP-007, BW1100, interleaved clean restarts)
+## 7. E2E performance
+
+### 7.1 Original run — EXP-007, BW1100 key, interleaved clean restarts
 
 | metric | A0 | C1 |
 |---|---|---|
@@ -119,6 +121,57 @@ Pooled A0 baseline over the night (n=18): median 1439.09 tok/s.
 historical threshold**: +1.11 % median is below the 1.99 % noise band this project uses to
 declare one. The evidence for "positive" is the CI excluding 0, p=0.0013 and 5/5 clean
 restarts — not a claim of a new best.
+
+### 7.2 Independent double-check — EXP-BW1101-E2E, BW1101 key
+
+Re-ran the whole A/B on a host that reports the other device-name spelling, to confirm the
+shipped alias is not a silent no-op. 3 paired cycles, 6 clean-restart lives, 12 formal
+rounds; same workload and client as §7.1 (bs/concurrency 32, input 65536, output 4096,
+seed 42, TP4 · DP2 · EP8 · MTP3, warmup excluded). The single variable per arm is whether
+`VLLM_TUNED_CONFIG_FOLDER` points at the package's `moe_configs/` folder, i.e. the bytes
+committed here.
+
+| pair | A0 (tok/s) | C1 (tok/s) | gain |
+|---|---|---|---|
+| 1 | 1411.36 | 1453.70 | +3.00 % |
+| 2 | 1437.65 | 1461.35 | +1.65 % |
+| 3 | 1434.78 | 1454.75 | +1.39 % |
+
+| summary | value |
+|---|---|
+| A0 median / mean | 1434.78 / 1427.93 tok/s |
+| C1 median / mean | 1454.75 / 1456.60 tok/s |
+| **median gain** | **+1.39 %** |
+| **paired wins** | **3/3** |
+| ITL | 62.83 → 61.58 ms (**−1.98 %**) |
+| prefill | 13016.4 → 13022.7 tok/s (**+0.05 %**, no regression) |
+| MTP acceptance | 0.6012 → 0.6012 (unchanged) |
+| stability | 18/18 cases rc=0, 18/18 health 200, no crash / OOM / 5xx |
+
+**Reading the numbers honestly.** The headline is the median **+1.39 %**, not the mean
++2.01 %: pair 1 is inflated because its A0 life was the slowest of the three (1411.36 tok/s,
+ITL 63.56 ms — the worst of both arms). Pairs 2 and 3, where A0 sits at its usual level, are
++1.65 % and +1.39 %, in line with the historical +1.11 % of §7.1. C1's median here (1454.75)
+lands within 0.1 % of the historical C1 median (1453.10), so the absolute level reproduces
+as well as the relative gain. Conclusion: **a stable ~1 %-class gain reproduced independently
+on the BW1101 key, 3/3 paired wins** — still not a strict NEW_BEST (below the 1.99 % band),
+and not a second hardware platform: BW1100 and BW1101 are two device-name spellings of the
+same HCU part.
+
+Selector evidence, per life (this is what rules out a silent no-op):
+
+```
+A0 3/3 lives  Using default MoE config … Config file not found at …BW1101.json
+C1 3/3 lives  Using configuration from …/E=44,N=1536,device_name=BW1101.json for MoE layer.
+```
+
+Local numerical check on the same key: 24/24 measurements bit-exact (`max_abs = 0.0`) — see
+§5. Runtime per life: `vllm 0.28.1+…step5.8454f1e.20261012`, the same build as §7.1; all
+lives started clean and released the GPUs (`GPU_RELEASED=YES`).
+
+Report: `experiments/AIOPT-1269/marlin-step5-gpu/results/EXP-BW1101-E2E/RESULT.md`.
+Raw evidence: the same directory (driver log, per-life `run_meta.env` / `server.log` /
+`evidence/selector.txt` / `bench/*.json`).
 
 ## 8. Reproduction
 
@@ -156,9 +209,11 @@ pytest tests/patch/test_moe_tuned_config.py -q
 - The M=1…256 range is tuned; entries above it are copies of `get_default_config` and exist
   only so the nearest-key lookup cannot drag the decode tile into prefill.
 - `M` between the tuned keys resolves to the nearest one (vLLM's rule, not a new behavior).
-- The E2E and clean-restart evidence is the BW1100 measurement. The BW1101 key was verified
-  at selector level and with a local kernel smoke only (EXP-BW1101) — bit-exact, same gain
-  direction, **no separate E2E claim**.
+- Both device-name spellings carry their own E2E evidence: BW1100 in §7.1 (5/5 clean-restart
+  cycles), BW1101 in §7.2 (3/3 paired cycles, median +1.39 %). The second is a repeat of the
+  same operating point on the same part under the other name — not a second platform.
+- Both E2E rounds are single-host, few-cycle experiments. §7.1 has the stronger design
+  (5 cycles, 10 vs 10 formal rounds, permutation test); §7.2 is the delivery double-check.
 - The tuning is device-name keyed; a device that reports a third spelling gets vLLM's
   default and needs one more alias file.
 
@@ -174,6 +229,8 @@ Nothing is forked or patched; rollback is configuration.
 
 Evidence (host paths, kept out of git):
 `experiments/AIOPT-1269/marlin-step5-gpu/results/EXP-005/` (tuning sweep),
-`EXP-007/` (A/B), `EXP-008/` (kernel accounting), `EXP-BW1101/` (BW1101 double-check).
+`EXP-007/` (BW1100 A/B), `EXP-008/` (kernel accounting),
+`EXP-BW1101/` (BW1101 selector smoke + local kernel smoke),
+`EXP-BW1101-E2E/` (BW1101 E2E double-check; report in its `RESULT.md`).
 Shipped table sha256 = `3000f5aac56558e170d3e10abb6716628a1a7636f82a713ae57f062f04a5f588`
 (both alias files).

@@ -143,7 +143,8 @@ v0.28.1-dev acceptance.
 - A0 plugin = `567fd24 + pin fix` = `509affd0…`; C1 plugin = `509affd0… +`
   C1 diff `09d83cc…`. The C1 diff is identical to `1c88648`.
 - Both plugins built from target source; the same `hcu_ops` `.so`
-  (sha256 `b0785af4…`) is used in both isolates.
+  (sha256 `158c44aa401d14976d2067b5bafc8b5be547edefe9bad839f499230cb1b073e7`)
+  is used in both isolates.
 - Workload: TP4 · DP2 · EP8 · MTP3, bs/concurrency 32, input 65536,
   output 4096, seed 42, `pd_case.py`.
 - Interleaved clean-restart A0/C1 cycles; w0 warmup + f1 + f2 formal per life.
@@ -167,23 +168,29 @@ Live-server selector evidence is recorded per life in
 
 ### Local correctness
 
-24/24 measurements (HCU4 and HCU5, M=16/32/64/128, seeds 0/1/2):
-`max_abs = 0.0`, bit-exact, finite, input preserved.
+Final fixed-lineage run (HCU4 / BW1101, `local_bench_fixed.json`,
+M=16/32/64/128, seeds 0/1/2): 12/12 measurements bit-exact,
+`max_abs = 0.0`, finite, input preserved.
+
+Historical corroboration only: the earlier local runs reproduced the same
+correctness result — 24/24 bit-exact, `max_abs = 0.0` across HCU4 and HCU5.
 
 ### Local microbench
 
-CUDA-graph timed, same session/device, weight rotation, 3 rounds × 20 replays,
-median:
+Final fixed-lineage run (`local_bench_fixed.json`): CUDA-graph timed, same
+session/device, weight rotation, 3 rounds × 20 replays, median:
 
 | M | A0 µs | C1 µs | Δ |
 | ---: | ---: | ---: | ---: |
-| 16 | 528.4 | 378.4 | −26.94 % |
-| 32 | 818.7 | 619.7 | −25.46 % |
-| 64 | 1054.5 | 859.3 | −21.17 % |
-| 128 | 1606.1 | 1029.7 | −35.01 % |
+| 16 | 530.1 | 379.0 | −27.07 % |
+| 32 | 820.3 | 620.6 | −25.49 % |
+| 64 | 1052.4 | 859.9 | −20.98 % |
+| 128 | 1602.1 | 1030.1 | −34.81 % |
 
-Overall median −25.72 %; repeated on HCU5 at −25.41 %; 12/12 negative
-directions in each session.
+Overall median −25.79 %; 12/12 negative.
+
+Historical corroboration only (earlier local run): median −25.72 % (HCU4)
+and −25.41 % (HCU5), 24/24 bit-exact.
 
 ### Paired E2E
 
@@ -200,18 +207,22 @@ PAIR5: A0=1394.46  C1=1402.20  +0.55%
 
 ```
 E2E_PAIRS=5
-E2E_DECODE_DELTA=+1.01% median (pair median; ratio of medians +1.01%)
-E2E_MEAN_DELTA=+0.96%
+E2E_DECODE_DELTA=+1.007% median (median-of-lives; ratio of medians +1.007%)
+E2E_MEAN_DELTA=+0.960%
 PAIRED_WINS=5/5
-E2E_ITL_DELTA=-0.95%
-E2E_PREFILL_DELTA=+0.06%
-MTP_ACCEPTANCE_DELTA=0.00% (0.6012 both arms)
+E2E_ITL_DELTA=-0.989%
+E2E_PREFILL_DELTA=+0.085%
+MTP_ACCEPTANCE_DELTA=0.000000 (0.601156 both arms)
+REQUEST_FAILURES=0
+SERVER_5XX=0
+CRASH=NO
+OOM=NO
 SELECTOR=A0 5/5 default miss · C1 5/5 hit
 STABILITY=PASS — 10/10 lives READY, 20/20 formal cases rc=0, health 200,
   GPU_RELEASED=YES after every life, no OOM/5xx/compatibility error;
   only shutdown-time EngineDeadError teardown lines in the first three A0/C1
   pairs (present in both arms).
-FINAL_RESULT=CONFIRMED_POSITIVE
+FINAL_RESULT=REVALIDATED_POSITIVE
 ```
 
 The first three pairs were the pre-registered initial run; pairs 4–5 are the
@@ -263,8 +274,12 @@ Host paths, kept out of git:
 `experiments/AIOPT-1269/C1_REBASE_V0281/`
 (`00_BASELINE.md`, `01_COMPATIBILITY_AUDIT.md`, `02_PATCH_PLAN.md`,
 `03_STATIC_TESTS.md`, `04_SELECTOR_PROOF.md`, `05_LOCAL_CORRECTNESS.md`,
-`06_MICROBENCH.md`, `07_E2E_VALIDATION.md`, `08_GIT_AUDIT.md`,
+`06_MICROBENCH.md`, `07_E2E_VALIDATION.md`, `07A_RUNTIME_COMPAT_PIN_FIX.md`,
 `09_FINAL_DELIVERY.md`, `runs/`).
+
+Final fixed-lineage E2E result (nmz106, runtimefix-v2 package):
+`c1-e2e-handoff-20261020-runtimefix-v2/results/nmz106/06_FINAL_RESULT.md`
+(`final_metrics.txt`, `final_metrics.json`, `analyze_final.txt`).
 
 Shipped table sha256 = `3000f5aac56558e170d3e10abb6716628a1a7636f82a713ae57f062f04a5f588`
 (both alias files).
